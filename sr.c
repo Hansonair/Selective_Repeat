@@ -3,7 +3,10 @@
 #include <stdbool.h>
 #include "emulator.h"
 #include "gbn.h"
-extern float time;
+
+float global_time = 0.0;
+
+
 
 /* ******************************************************************
    Go Back N protocol.  Adapted from J.F.Kurose
@@ -92,7 +95,7 @@ void A_output(struct msg message) {
         sender_buffer[nextseqnum].packet = sendpkt;
         sender_buffer[nextseqnum].used = true;
         sender_buffer[nextseqnum].acked = false;
-        sender_buffer[nextseqnum].send_time = time;  
+        sender_buffer[nextseqnum].send_time = global_time;  
 
         
         tolayer3(A, sendpkt);
@@ -123,8 +126,9 @@ void A_input(struct pkt packet) {
 
         total_ACKs_received++;
 
-        int acknum = packet.acknum;
 
+        int acknum = packet.acknum; 
+        
         if (sender_buffer[acknum].used && !sender_buffer[acknum].acked) {
             sender_buffer[acknum].acked = true;
 
@@ -153,15 +157,17 @@ void A_timerinterrupt(void) {
     if (TRACE > 0)
         printf("----A: timer interrupt, checking for timeouts...\n");
 
-    for (int i = 0; i < SEQSPACE; i++) {
+    int i;
+    for (i = 0; i < SEQSPACE; i++) {
+
         if (sender_buffer[i].used && !sender_buffer[i].acked) {
-            float elapsed = time - sender_buffer[i].send_time;
+            float elapsed = global_time - sender_buffer[i].send_time;
 
             if (elapsed >= RTT) {
                 tolayer3(A, sender_buffer[i].packet);
 
                
-                sender_buffer[i].send_time = time;
+                sender_buffer[i].send_time = global_time;
 
                 if (TRACE > 0)
                     printf("----A: timeout for packet %d, retransmitted\n", sender_buffer[i].packet.seqnum);
@@ -184,7 +190,9 @@ void A_init(void) {
     base = 0;
     nextseqnum = 0;
 
-    for (int i = 0; i < SEQSPACE; i++) {
+    int i;
+    for (i = 0; i < SEQSPACE; i++) {
+
         sender_buffer[i].used = false;
         sender_buffer[i].acked = false;
         sender_buffer[i].send_time = 0.0;
@@ -274,8 +282,11 @@ void B_init(void) {
     expectedseqnum = 0;
     B_nextseqnum = 0;
 
-    for (int i = 0; i < SEQSPACE; i++)
+    int i;
+    for (i = 0; i < SEQSPACE; i++) {
+
         received[i] = false;
+    }
 }
 
 
