@@ -3,12 +3,30 @@
 #include <string.h>
 #include "emulator.h"
 #include "sr.h"
+/* ******************************************************************
+   Go Back N protocol.  Adapted from J.F.Kurose
+   ALTERNATING BIT AND GO-BACK-N NETWORK EMULATOR: VERSION 1.2
 
-#define RTT 16.0
-#define WINDOWSIZE 6
-#define MAX_SEQ 16 /* SR needs larger sequence space (at least 2*WINDOWSIZE) */
-#define NOTINUSE (-1)
+   Network properties:
+   - one way network delay averages five time units (longer if there
+   are other messages in the channel for GBN), but can be larger
+   - packets can be corrupted (either the header or the data portion)
+   or lost, according to user-defined probabilities
+   - packets will be delivered in the order in which they were sent
+   (although some can be lost).
 
+   Modifications:
+   - removed bidirectional GBN code and other code not used by prac.
+   - fixed C style to adhere to current programming style
+   - added GBN implementation
+**********************************************************************/
+
+
+#define RTT  16.0       /* round trip time.  MUST BE SET TO 16.0 when submitting assignment */
+#define WINDOWSIZE 6    /* the maximum number of buffered unacked packet
+                          MUST BE SET TO 6 when submitting assignment */
+#define SEQSPACE 7      /* the min sequence space for GBN must be at least windowsize + 1 */
+#define NOTINUSE (-1)   /* used to fill header fields that are not being used */
 /* Sender (A) variables */
 static struct pkt buffer[WINDOWSIZE]; /* Buffer for storing packets awaiting ACK */
 static int windowfirst; /* Index of the first unacked packet in the buffer */
@@ -42,7 +60,6 @@ int IsCorrupted(struct pkt packet)
     return 0; /* Corrupted */
 }
 
-/********* Sender (A) functions ************/
 
 /* Called from layer 5: Send a new message to the network */
 void A_output(struct msg message)
@@ -52,7 +69,7 @@ void A_output(struct msg message)
   int index;
   /* Compute the sequence number range of the current window */
   int seqfirst = windowfirst;
-  int seqlast = (windowfirst + WINDOWSIZE - 1) % MAX_SEQ;
+  int seqlast = (windowfirst + WINDOWSIZE - 1) % SEQSPACE;
 
   /* Check if A_nextseqnum is within the current window */
   if (((seqfirst <= seqlast) && (A_nextseqnum >= seqfirst && A_nextseqnum <= seqlast)) ||
@@ -86,7 +103,7 @@ void A_output(struct msg message)
       starttimer(A, RTT);
 
     /* Increment the next sequence number */
-    A_nextseqnum = (A_nextseqnum + 1) % MAX_SEQ;
+    A_nextseqnum = (A_nextseqnum + 1) % SEQSPACE;
   }
   else
   {
@@ -114,7 +131,7 @@ void A_input(struct pkt packet)
 
     /* Compute the current window's sequence number range */
     seqfirst = windowfirst;
-    seqlast = (windowfirst + WINDOWSIZE - 1) % MAX_SEQ;
+    seqlast = (windowfirst + WINDOWSIZE - 1) % SEQSPACE;
 
     /* Check if the ACK is within the current window */
     if (((seqfirst <= seqlast) && (packet.acknum >= seqfirst && packet.acknum <= seqlast)) ||
@@ -154,23 +171,21 @@ void A_input(struct pkt packet)
         }
 
         /* Slide the window by updating windowfirst */
-        windowfirst = (windowfirst + ackcount) % MAX_SEQ;
+        windowfirst = (windowfirst + ackcount) % SEQSPACE;
 
         /* Shift the buffer to remove ACKed packets */
         for (i = 0; i < WINDOWSIZE; i++)
         {
-          if (buffer[i + ackcount].acknum == NOTINUSE || (buffer[i].seqnum + ackcount) % MAX_SEQ == A_nextseqnum)
+          if (buffer[i + ackcount].acknum == NOTINUSE || (buffer[i].seqnum + ackcount) % SEQSPACE == A_nextseqnum)
             buffer[i] = buffer[i + ackcount];
         }
 
-        /* Restart the timer if there are still unacked packets */
         stoptimer(A);
         if (windowcount > 0)
           starttimer(A, RTT);
       }
       else
       {
-        /* Update buffer with the ACK */
         buffer[index].acknum = packet.acknum;
       }
     }
@@ -203,7 +218,6 @@ void A_init(void)
   windowcount = 0;
 }
 
-/********* Receiver (B) functions ************/
 
 /* Called from layer 3: Process an incoming packet at B */
 void B_input(struct pkt packet)
@@ -232,7 +246,7 @@ void B_input(struct pkt packet)
 
     /* Compute the receiver's window range */
     seqfirst = expectedseqnum;
-    seqlast = (expectedseqnum + WINDOWSIZE - 1) % MAX_SEQ;
+    seqlast = (expectedseqnum + WINDOWSIZE - 1) % SEQSPACE;
 
     /* Check if the packet is within the receiver's window */
     if (((seqfirst <= seqlast) && (packet.seqnum >= seqfirst && packet.seqnum <= seqlast)) ||
@@ -262,7 +276,7 @@ void B_input(struct pkt packet)
           }
 
           /* Update the expected sequence number */
-          expectedseqnum = (expectedseqnum + pckcount) % MAX_SEQ;
+          expectedseqnum = (expectedseqnum + pckcount) % SEQSPACE;
 
           /* Shift the buffer to remove delivered packets */
           for (i = 0; i < WINDOWSIZE; i++)
@@ -279,7 +293,8 @@ void B_input(struct pkt packet)
   }
 }
 
-/* Initialize receiver's state variables */
+/* the following routine will be called once (only) before any other */
+/* entity B routines are called. You can use it to do any initialization */
 void B_init(void)
 {
   expectedseqnum = 0;
